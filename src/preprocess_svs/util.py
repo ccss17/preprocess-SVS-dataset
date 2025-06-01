@@ -1,9 +1,6 @@
 import pathlib
 import multiprocessing as mp
-import json
-import itertools
 
-import pandas as pd
 import numpy as np
 import midii
 

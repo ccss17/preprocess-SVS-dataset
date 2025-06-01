@@ -14,7 +14,7 @@ from g2pk import G2p
 import soundfile
 import midii
 
-from .util import *
+from .util import get_files
 
 
 def mssv_midi_to_dataframe(midi_filepath):
@@ -23,7 +23,7 @@ def mssv_midi_to_dataframe(midi_filepath):
             midi_filepath, convert_1_to_0=True, lyric_encoding="utf-8"
         )
         mid.lyrics
-    except:
+    except:  # noqa: E722
         mid = midii.MidiFile(
             midi_filepath, convert_1_to_0=True, lyric_encoding="cp949"
         )
