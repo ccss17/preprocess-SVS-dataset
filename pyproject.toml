@@ -1,0 +1,31 @@
+[project]
+name = "preprocess-svs"
+version = "0.1.0"
+description = "preprocessing svs dataset"
+readme = "README.md"
+authors = [
+    { name = "ccss17", email = "chansol0505@naver.com" }
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "g2pk>=0.9.4",
+    "librosa>=0.11.0",
+    "midii>=0.1.37",
+    "numpy>=2.2.6",
+    "pandas>=2.2.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+midii = { path = "../midii/dist/midii-0.1.41-py3-none-any.whl" }
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "ruff>=0.11.12",
+]
+
