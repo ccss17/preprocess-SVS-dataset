@@ -167,7 +167,8 @@ def preprocess_mssv_one(
     for i, chunk in enumerate(json_data):
         subfilename = f"{filename}_{i:02}"
         lyric = "".join([item["lyric"] for item in chunk["chunk"]])
-        lyric = " ".join([g2p(x) for x in lyric.split()])
+        # lyric = " ".join([g2p(x) for x in lyric.split()])
+        lyric = " ".join([x for x in lyric.split()])
         metadata += f"{subfilename}|{lyric}|{_singer_id(filename)}|11|SV\n"
         np.save(
             f"{out_pitch_dir_path}/{subfilename}.npy",
