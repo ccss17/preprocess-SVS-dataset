@@ -13,7 +13,16 @@ import soundfile
 from g2pk import G2p
 
 
-from .util import get_files, print_stat
+from .util import (
+    get_files,
+    print_stat,
+    _preprocess_sort_by_start_time,
+    _preprocess_add_frame_col,
+    _preprocess_remove_front_back_silence,
+    _preprocess_silence_pitch_zero,
+    _preprocess_merge_silence,
+    _preprocess_remove_short_silence,
+)
 
 
 def adjust_note_times(notes):
@@ -39,22 +48,6 @@ def adjust_note_times(notes):
             }
         )
     return processed_notes
-
-
-def adjust_note_times_sample():
-    gv = "sample/gv/json"
-    for json_path in get_files(gv, "json"):
-        p_orig = Path(json_path)
-        out_path = p_orig.parent.parent / "json_time_adjusted" / p_orig.name
-        out_path.parent.mkdir(exist_ok=True, parents=True)
-        print(f"adjust time of \n{json_path}")
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        notes = data.get("notes")
-        processed_notes = adjust_note_times(notes)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(processed_notes, f, ensure_ascii=False, indent=4)
-        print(f"saved to \n{out_path}")
 
 
 def fill_time_gaps_with_silence(notes):
@@ -89,7 +82,7 @@ def fill_time_gaps_with_silence(notes):
     return filled_notes
 
 
-def _preprocess_gv_json(json_path, mid_path, out_path):
+def _preprocess_json(json_path, mid_path, out_path):
     out_path = Path(out_path)
     json_path = Path(json_path)
     mid_path = Path(mid_path)
@@ -98,9 +91,17 @@ def _preprocess_gv_json(json_path, mid_path, out_path):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     notes = data.get("notes")
+
+    # adjust note times
     notes = adjust_note_times(notes)
+    # fill time gaps_with silence
     notes = fill_time_gaps_with_silence(notes)
 
+    # lyric "" --> " "
+    df = pd.DataFrame(notes)
+    df.loc[df["lyric"] == "", "lyric"] = " "
+
+    # quantize
     mid = midii.MidiFile(mid_path, convert_1_to_0=True)
     unit_beats = midii.NOTE["n/32"].beat
     unit_ticks = midii.beat2tick(unit_beats, ticks_per_beat=mid.ticks_per_beat)
@@ -108,8 +109,6 @@ def _preprocess_gv_json(json_path, mid_path, out_path):
     unit_seconds = mido.tick2second(
         unit_ticks, ticks_per_beat=mid.ticks_per_beat, tempo=top_tempo
     )
-
-    df = pd.DataFrame(notes)
     quantized_durations, err = midii.quantize(
         df["duration"], unit=unit_seconds
     )
@@ -117,13 +116,19 @@ def _preprocess_gv_json(json_path, mid_path, out_path):
     df["start_time"] = df["duration"].shift(1).fillna(0).cumsum()
     df["end_time"] = df["start_time"] + df["duration"]
 
-    df = df.sort_values(by="start_time").reset_index(drop=True)
-    df["frames"] = midii.second2frame(
-        seconds=df["duration"].values,
-        sr=midii.DEFAULT_SAMPLING_RATE,
-        hop_length=midii.DEFAULT_HOP_LENGTH,
-    )
-    df.loc[df["lyric"] == "", "lyric"] = " "
+    # sort by time
+    df = _preprocess_sort_by_start_time(df)
+    # remove front & back silence
+    df = _preprocess_remove_front_back_silence(df)
+    # lyric=" " --> pitch=0
+    df = _preprocess_silence_pitch_zero(df)
+    # merge lyric=" " items
+    df = _preprocess_merge_silence(df)
+    # remove silence < 0.3
+    df = _preprocess_remove_short_silence(df, 0.3)
+    # add frame col
+    df = _preprocess_add_frame_col(df)
+    # to json
     out_path.parent.mkdir(exist_ok=True, parents=True)
     df.to_json(
         out_path,
@@ -133,7 +138,7 @@ def _preprocess_gv_json(json_path, mid_path, out_path):
     )
 
 
-def preprocess_gv_json(json_dir_path, mid_dir_path, out_path, parallel=False):
+def preprocess_json(json_dir_path, mid_dir_path, out_path, parallel=False):
     if parallel:
         with mp.Pool(mp.cpu_count()) as p:
             json_paths = list(get_files(json_dir_path, "json", sort=True))
@@ -143,12 +148,12 @@ def preprocess_gv_json(json_dir_path, mid_dir_path, out_path, parallel=False):
             ]
             mid_paths = get_files(mid_dir_path, "mid", sort=True)
             args = zip(json_paths, mid_paths, out_paths)
-            p.starmap(_preprocess_gv_json, args)
+            p.starmap(_preprocess_json, args)
     else:
         json_paths = get_files(json_dir_path, "json", sort=True)
         mid_paths = get_files(mid_dir_path, "mid", sort=True)
         for json_path, mid_path in zip(json_paths, mid_paths):
-            _preprocess_gv_json(
+            _preprocess_json(
                 json_path, mid_path, Path(out_path) / Path(json_path).name
             )
 
@@ -182,7 +187,7 @@ def verify_files_coherent(list1, list2):
     return result_files_1, result_files_2
 
 
-def remove_abnormal_gv_file(gv_dir):
+def remove_abnormal_file(gv_dir):
     """
     gv 데이터셋 사전 준비:
     - 삭제
@@ -220,32 +225,6 @@ def remove_abnormal_gv_file(gv_dir):
     return deleted_files, error_files
 
 
-def split_json_by_silence_gv(json_path, min_length=6):
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    result = []
-    chunk = []
-    chunk_length = 0
-    for note in data:
-        if note["lyric"] == " " and chunk_length > min_length:
-            result.append(
-                {
-                    "chunk_info": {
-                        "start_time": chunk[0]["start_time"],
-                        "end_time": chunk[-1]["end_time"],
-                        "duration": sum(item["duration"] for item in chunk),
-                    },
-                    "chunk": chunk,
-                }
-            )
-            chunk = []
-            chunk_length = 0
-        else:
-            chunk.append(note)
-            chunk_length += note["duration"]
-    return result
-
-
 def _singer_id(filename):
     # sid = re.findall(r"s\d\d", filename)[0]
     # return int(sid[1:]) + 26
@@ -260,7 +239,7 @@ def split_audio(y, sr, start_time, end_time, output_filename):
     soundfile.write(output_filename, chunk, sr)  # Save as WAV file
 
 
-def preprocess_gv_one(
+def preprocess_one(
     wav_path,
     json_path,
     out_pitch_dir_path,

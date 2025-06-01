@@ -14,10 +14,18 @@ from g2pk import G2p
 import soundfile
 import midii
 
-from .util import get_files
+from .util import (
+    get_files,
+    _preprocess_sort_by_start_time,
+    _preprocess_add_frame_col,
+    _preprocess_remove_front_back_silence,
+    _preprocess_silence_pitch_zero,
+    _preprocess_merge_silence,
+    _preprocess_remove_short_silence,
+)
 
 
-def mssv_midi_to_dataframe(midi_filepath):
+def midi_to_note_list(midi_filepath, quantize=True):
     try:
         mid = midii.MidiFile(
             midi_filepath, convert_1_to_0=True, lyric_encoding="utf-8"
@@ -27,7 +35,8 @@ def mssv_midi_to_dataframe(midi_filepath):
         mid = midii.MidiFile(
             midi_filepath, convert_1_to_0=True, lyric_encoding="cp949"
         )
-    mid.quantize(unit="32")
+    if quantize:
+        mid.quantize(unit="32")
     data = []
     total_duration = 0
     residual_duration = 0
@@ -77,53 +86,46 @@ def mssv_midi_to_dataframe(midi_filepath):
                 residual_duration += msg.time
         total_duration = msg_end_time
 
-    df = pd.DataFrame(data)
+    return data
 
-    if not df.empty:
-        df = df.sort_values(by="start_time").reset_index(drop=True)
 
-    df["frames"] = midii.second2frame(
-        seconds=df["duration"].values,
-        sr=midii.DEFAULT_SAMPLING_RATE,
-        hop_length=midii.DEFAULT_HOP_LENGTH,
-    )
-
+def _preprocess_slice_actual_lyric(df):
+    j_indices = df.index[df["lyric"] == "J"].tolist()
+    idx_j = j_indices[0]
+    h_indices = df.index[df["lyric"] == "H"].tolist()
+    idx_h = h_indices[0]
+    slice_start_index = idx_j + 1
+    slice_end_index = idx_h
+    df = df.iloc[slice_start_index:slice_end_index].reset_index(drop=True)
     return df
 
 
-def split_json_by_silence_mssv(json_path, min_length=6):
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    result = []
-    chunk = []
-    chunk_length = 0
-    start_data = False
-    for note in data:
-        if note["lyric"] == "J":
-            start_data = True
-            continue
-        if note["lyric"] == "H":
-            break
-        if not start_data:
-            continue
+def preprocess_notes(notes, out_json_path):
+    df = pd.DataFrame(notes)
 
-        if note["lyric"] == " " and chunk_length > min_length:
-            result.append(
-                {
-                    "chunk_info": {
-                        "start_time": chunk[0]["start_time"],
-                        "end_time": chunk[-1]["end_time"],
-                        "duration": sum(item["duration"] for item in chunk),
-                    },
-                    "chunk": chunk,
-                }
-            )
-            chunk = []
-            chunk_length = 0
-        else:
-            chunk.append(note)
-            chunk_length += note["duration"]
-    return result
+    # ["J":"H"]
+    df = _preprocess_slice_actual_lyric(df)
+    # sort by time
+    df = _preprocess_sort_by_start_time(df)
+    # remove front & back silence
+    df = _preprocess_remove_front_back_silence(df)
+    # lyric=" " --> pitch=0
+    df = _preprocess_silence_pitch_zero(df)
+    # merge lyric=" " items
+    df = _preprocess_merge_silence(df)
+    # remove silence < 0.3
+    df = _preprocess_remove_short_silence(df, 0.3)
+    # add frames col
+    df = _preprocess_add_frame_col(df)
+    # to json
+    json_filepath = Path(out_json_path)
+    json_filepath.parent.mkdir(exist_ok=True, parents=True)
+    df.to_json(
+        json_filepath,
+        orient="records",
+        indent=4,
+        force_ascii=False,
+    )
 
 
 def _singer_id(filename):
@@ -139,7 +141,7 @@ def split_audio(y, sr, start_time, end_time, output_filename):
     soundfile.write(output_filename, chunk, sr)  # Save as WAV file
 
 
-def preprocess_mssv_one(
+def preprocess_one(
     wav_path,
     json_path,
     out_pitch_dir_path,
@@ -188,7 +190,7 @@ def preprocess_mssv_one(
     return metadata
 
 
-def check_abnormal_mssv_file(mssv_dir):
+def check_abnormal_file(mssv_dir):
     """
     mssv 데이터셋 사전 준비:
     - 삭제
@@ -271,7 +273,7 @@ def check_abnormal_mssv_file(mssv_dir):
     return found_files
 
 
-def remove_abnormal_mssv_file(mssv_dir):
+def remove_abnormal_file(mssv_dir):
     """
     mssv 데이터셋 사전 준비:
     - 삭제
@@ -364,7 +366,7 @@ def remove_abnormal_mssv_file(mssv_dir):
     return deleted_files, error_files
 
 
-def rename_abnormal_mssv_file(mssv_dir):
+def rename_abnormal_file(mssv_dir):
     """
     mssv 데이터셋 사전 준비:
     - 경로 변경
