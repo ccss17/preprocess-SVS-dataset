@@ -22,6 +22,7 @@ from .util import (
     _preprocess_silence_pitch_zero,
     _preprocess_merge_silence,
     _preprocess_remove_short_silence,
+    split_json_by_silence,
 )
 
 
@@ -239,55 +240,6 @@ def split_audio(y, sr, start_time, end_time, output_filename):
     soundfile.write(output_filename, chunk, sr)  # Save as WAV file
 
 
-def preprocess_one(
-    wav_path,
-    json_path,
-    out_pitch_dir_path,
-    out_duration_dir_path,
-    out_wavs_dir_path,
-):
-    wav_path = Path(wav_path)
-    json_path = Path(json_path)
-    if wav_path.stem != json_path.stem:
-        raise ValueError
-    with open(json_path, "r", encoding="utf-8") as f:
-        json_data = json.load(f)
-
-    out_pitch_dir_path = Path(out_pitch_dir_path)
-    out_duration_dir_path = Path(out_duration_dir_path)
-    out_wavs_dir_path = Path(out_wavs_dir_path)
-    out_pitch_dir_path.mkdir(exist_ok=True, parents=True)
-    out_duration_dir_path.mkdir(exist_ok=True, parents=True)
-    out_wavs_dir_path.mkdir(exist_ok=True, parents=True)
-
-    g2p = G2p()
-    metadata = ""
-    filename = wav_path.stem
-    y, sr = librosa.load(wav_path, sr=None)
-    for i, chunk in enumerate(json_data):
-        subfilename = f"{filename}_{i:02}"
-        lyric = "".join([item["lyric"] for item in chunk["chunk"]])
-        # lyric = " ".join([g2p(x) for x in lyric.split()])
-        lyric = " ".join([x for x in lyric.split()])
-        metadata += f"{subfilename}|{lyric}|{_singer_id(filename)}|11|SV\n"
-        np.save(
-            f"{out_pitch_dir_path}/{subfilename}.npy",
-            np.array([item["pitch"] for item in chunk["chunk"]]),
-        )
-        np.save(
-            f"{out_duration_dir_path}/{subfilename}.npy",
-            np.array([item["frames"] for item in chunk["chunk"]]),
-        )
-        split_audio(
-            y,
-            sr,
-            start_time=chunk["chunk_info"]["start_time"],
-            end_time=chunk["chunk_info"]["end_time"],
-            output_filename=f"{out_wavs_dir_path}/{subfilename}.wav",
-        )
-    return metadata
-
-
 def verify_notes_sorted_by_time(json_filepath):
     with open(json_filepath, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -333,3 +285,87 @@ def verify_json_notes_sorted_by_time(dir_path, parallel=False):
                 for index, row in result_df.iterrows():
                     diffs.append(row["previous_end_time"] - row["start_time"])
     print_stat(diffs, verbose=True)
+
+
+def split_json(json_filepath, split_json_filepath):
+    split_json = split_json_by_silence(json_filepath, min_length=6)
+    split_json_filepath = Path(split_json_filepath)
+    split_json_filepath.parent.mkdir(exist_ok=True, parents=True)
+    with open(split_json_filepath, "w", encoding="utf-8") as f:
+        json.dump(split_json, f, indent=4, ensure_ascii=False)
+
+
+def split_jsons(json_dirpath, split_json_dirpath):
+    with mp.Pool(mp.cpu_count()) as p:
+        json_paths = get_files(json_dirpath, "json")
+        args = []
+        for json_path in json_paths:
+            json_path = Path(json_path)
+            args.append((json_path, Path(split_json_dirpath) / json_path.name))
+        p.starmap(split_json, args)
+
+
+def preprocess_one(
+    wav_path,
+    json_path,
+    out_path,
+):
+    wav_path = Path(wav_path)
+    json_path = Path(json_path)
+    if wav_path.stem != json_path.stem:
+        raise ValueError
+    with open(json_path, "r", encoding="utf-8") as f:
+        json_data = json.load(f)
+
+    out_pitch_dir_path = Path(out_path) / "pitch"
+    out_duration_dir_path = Path(out_path) / "duration"
+    out_wavs_dir_path = Path(out_path) / "wav"
+    out_pitch_dir_path.mkdir(exist_ok=True, parents=True)
+    out_duration_dir_path.mkdir(exist_ok=True, parents=True)
+    out_wavs_dir_path.mkdir(exist_ok=True, parents=True)
+
+    metadata = ""
+    filename = wav_path.stem
+    y, sr = librosa.load(wav_path, sr=None)
+    for i, chunk in enumerate(json_data):
+        subfilename = f"{filename}_{i:02}"
+        lyric = "".join([item["lyric"] for item in chunk["chunk"]])
+        # lyric = " ".join([x for x in lyric.split()])
+        metadata += f"{subfilename}|{lyric}|{_singer_id(filename)}|11|SV\n"
+        np.save(
+            f"{out_pitch_dir_path}/{subfilename}.npy",
+            np.array([item["pitch"] for item in chunk["chunk"]]),
+        )
+        np.save(
+            f"{out_duration_dir_path}/{subfilename}.npy",
+            np.array([item["frames"] for item in chunk["chunk"]]),
+        )
+        split_audio(
+            y,
+            sr,
+            start_time=chunk["chunk_info"]["start_time"],
+            end_time=chunk["chunk_info"]["end_time"],
+            output_filename=f"{out_wavs_dir_path}/{subfilename}.wav",
+        )
+    return metadata
+
+
+def save_duration_pitch_metadata_split_audio(
+    wav_dirpath,
+    split_json_dirpath,
+    preprocessed_gv_path,
+):
+    with mp.Pool(mp.cpu_count()) as p:
+        wav_paths = get_files(wav_dirpath, "wav", sort=True)
+        split_json_paths = get_files(split_json_dirpath, "json", sort=True)
+        preprocessed_gv_paths = [
+            preprocessed_gv_path for _ in range(len(list(split_json_paths)))
+        ]
+        args = zip(wav_paths, split_json_paths, preprocessed_gv_paths)
+        metadata_list = p.starmap(preprocess_one, args)
+    preprocessed_gv_path = Path(preprocessed_gv_path)
+    preprocessed_gv_path.mkdir(exist_ok=True, parents=True)
+    with open(
+        f"{preprocessed_gv_path}/metadata.txt", "w", encoding="utf-8"
+    ) as f:
+        f.write("".join(metadata_list))

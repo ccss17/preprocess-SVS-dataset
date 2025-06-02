@@ -162,15 +162,13 @@ def preprocess_one(
     out_duration_dir_path.mkdir(exist_ok=True, parents=True)
     out_wavs_dir_path.mkdir(exist_ok=True, parents=True)
 
-    g2p = G2p()
     metadata = ""
     filename = wav_path.stem
     y, sr = librosa.load(wav_path, sr=None)
     for i, chunk in enumerate(json_data):
         subfilename = f"{filename}_{i:02}"
         lyric = "".join([item["lyric"] for item in chunk["chunk"]])
-        # lyric = " ".join([g2p(x) for x in lyric.split()])
-        lyric = " ".join([x for x in lyric.split()])
+        # lyric = " ".join([x for x in lyric.split()])
         metadata += f"{subfilename}|{lyric}|{_singer_id(filename)}|11|SV\n"
         np.save(
             f"{out_pitch_dir_path}/{subfilename}.npy",
@@ -492,3 +490,18 @@ def verify_midi_files_lyrics_has_no_time(dir_path, parallel=False):
             if verify_midi_lyrics_has_no_time_return_path(midi_file):
                 print(i, midi_file)
                 i += 1
+
+
+def midi_to_json(midi_filepath, json_filepath):
+    notes = midi_to_note_list(midi_filepath)
+    preprocess_notes(notes, json_filepath)
+
+
+def midis_to_jsons(midi_dirpath, json_dirpath):
+    with mp.Pool(mp.cpu_count()) as p:
+        args = zip(
+            list(get_files(midi_dirpath, "mid", sort=True)),
+            list(get_files(json_dirpath, "json", sort=True)),
+        )
+        print(list(args))
+        p.starmap(midi_to_json, args)

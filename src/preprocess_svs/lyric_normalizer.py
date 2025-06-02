@@ -1,8 +1,183 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import re
+from pathlib import Path
+import unicodedata
+
+from jamo import h2j, j2h
+import numpy as np
+import whisper
 
 import hangul_dtw
-from jamo import h2j, j2h
+
+
+class ErrorChecker:
+    def __init__(self):
+        pass
+
+    def check_errors(self, transcribed_text: str):
+        """오인식 여부를 확인하고 오류 목록을 반환합니다.
+
+        Args:
+            transcribed_text (str): Whisper로 추론된 텍스트
+            original_lyrics (str): 원본 가사
+            filename (str): 파일 이름
+
+        Returns:
+            Tuple[bool, List[str]]: (오인식 여부, 오류 메시지 리스트)
+        """
+        is_error = False
+
+        # 1. 숫자 포함 여부 확인
+        if any(char.isdigit() for char in transcribed_text):
+            is_error = True
+
+        # 2. 한글 외 언어 포함 여부 확인 (공백과 특수문자 제외)
+        non_hangul_chars = [
+            char
+            for char in transcribed_text
+            if not self._is_hangul(char)
+            and not char.isspace()
+            and not char in ".,!?()[]{}'\"-_"
+        ]
+        if non_hangul_chars:
+            is_error = True
+
+        # 3. 멜리스마 확인
+        if self._is_melisma(transcribed_text):
+            is_error = True
+
+        # 4. 한글 가사 없는 경우
+        if not any(self._is_hangul(char) for char in transcribed_text):
+            is_error = True
+
+        # 5. '자막 제공' 텍스트 포함 여부
+        if "자막 제공" in transcribed_text:
+            is_error = True
+
+        return is_error
+
+    def _is_hangul(self, char: str) -> bool:
+        """문자가 한글인지 확인합니다."""
+        return "HANGUL" in unicodedata.name(char)
+
+    def _is_melisma(self, text: str) -> bool:
+        """멜리스마 여부를 확인합니다."""
+        # 1. 한 음절로만 구성된 경우
+        if len(text.strip()) == 1 and self._is_hangul(text.strip()):
+            return True
+
+        # 2. 초성 'ㅇ' 또는 'ㅎ'이며 중성과 종성이 동일한 3개 이상의 음절이 연속되는 경우
+        text = text.replace(" ", "")
+        if len(text) < 3:
+            return False
+
+        for i in range(len(text) - 2):
+            if not all(self._is_hangul(char) for char in text[i : i + 3]):
+                continue
+
+            # 각 음절을 자모로 분해
+            syllables = [
+                self._decompose_hangul(char) for char in text[i : i + 3]
+            ]
+
+            # 초성이 'ㅇ' 또는 'ㅎ'인지 확인
+            if not all(s[0] in ["ㅇ", "ㅎ"] for s in syllables):
+                continue
+
+            # 중성과 종성이 모두 동일한지 확인
+            if all(s[1] == syllables[0][1] for s in syllables) and all(
+                s[2] == syllables[0][2] for s in syllables
+            ):
+                return True
+
+        return False
+
+    def _decompose_hangul(self, char: str) -> Tuple[str, str, str]:
+        """한글 음절을 초성, 중성, 종성으로 분해합니다."""
+        if not self._is_hangul(char):
+            return ("", "", "")
+
+        code = ord(char) - 0xAC00
+        jong = code % 28
+        jung = (code // 28) % 21
+        cho = code // 28 // 21
+
+        CHOSUNG = [
+            "ㄱ",
+            "ㄲ",
+            "ㄴ",
+            "ㄷ",
+            "ㄸ",
+            "ㄹ",
+            "ㅁ",
+            "ㅂ",
+            "ㅃ",
+            "ㅅ",
+            "ㅆ",
+            "ㅇ",
+            "ㅈ",
+            "ㅉ",
+            "ㅊ",
+            "ㅋ",
+            "ㅌ",
+            "ㅍ",
+            "ㅎ",
+        ]
+        JUNGSUNG = [
+            "ㅏ",
+            "ㅐ",
+            "ㅑ",
+            "ㅒ",
+            "ㅓ",
+            "ㅔ",
+            "ㅕ",
+            "ㅖ",
+            "ㅗ",
+            "ㅘ",
+            "ㅙ",
+            "ㅚ",
+            "ㅛ",
+            "ㅜ",
+            "ㅝ",
+            "ㅞ",
+            "ㅟ",
+            "ㅠ",
+            "ㅡ",
+            "ㅢ",
+            "ㅣ",
+        ]
+        JONGSUNG = [
+            "",
+            "ㄱ",
+            "ㄲ",
+            "ㄳ",
+            "ㄴ",
+            "ㄵ",
+            "ㄶ",
+            "ㄷ",
+            "ㄹ",
+            "ㄺ",
+            "ㄻ",
+            "ㄼ",
+            "ㄽ",
+            "ㄾ",
+            "ㄿ",
+            "ㅀ",
+            "ㅁ",
+            "ㅂ",
+            "ㅄ",
+            "ㅅ",
+            "ㅆ",
+            "ㅇ",
+            "ㅈ",
+            "ㅊ",
+            "ㅋ",
+            "ㅌ",
+            "ㅍ",
+            "ㅎ",
+        ]
+
+        return (CHOSUNG[cho], JUNGSUNG[jung], JONGSUNG[jong])
 
 
 class LyricNormalizer:
@@ -415,3 +590,346 @@ class LyricNormalizer:
                     new_pitch_sequence.append(pitch_sequence[i])
                     new_duration_sequence.append(duration_sequence[i])
         return new_pitch_sequence, new_duration_sequence, space_indices
+
+
+class SVS_Preprocessor:
+    def __init__(
+        self,
+        base_path: Path,
+        model_name: str = "large-v3",
+        device: str = "cuda",
+        language: str = "ko",
+    ):
+        self.base_path = Path(base_path)
+        self.model_name = model_name
+        self.device = device
+        self.language = language
+
+        # Initialize paths
+        self.metadata_path = self.base_path / "metadata.txt"
+        self.wav_path = self.base_path / "wav"
+        self.pitch_path = self.base_path / "pitch"
+        self.duration_path = self.base_path / "duration"
+
+        # Initialize components
+        self.lyric_normalizer = LyricNormalizer()
+        self.model = None
+
+    def load_model(self) -> None:
+        """Load the Whisper model."""
+        self.model = whisper.load_model(self.model_name, device=self.device)
+
+    def get_file_paths(self, filename_stem: str) -> Tuple[Path, Path, Path]:
+        """Get the paths for wav, pitch, and duration files."""
+        return (
+            self.wav_path / f"{filename_stem}.wav",
+            self.pitch_path / f"{filename_stem}.npy",
+            self.duration_path / f"{filename_stem}.npy",
+        )
+
+    def transcribe_audio(self, wav_filepath: Path) -> Tuple[str, float]:
+        """Transcribe audio file using Whisper model."""
+        result = self.model.transcribe(
+            str(wav_filepath), language=self.language
+        )
+        return result["text"]
+
+    def load_sequences(
+        self, pitch_filepath: Path, duration_filepath: Path
+    ) -> Tuple[List, List]:
+        """Load pitch and duration sequences from files."""
+        pitch_sequence = np.load(pitch_filepath).tolist()
+        duration_sequence = np.load(duration_filepath).tolist()
+        return pitch_sequence, duration_sequence
+
+    def save_normalized_sequences(
+        self,
+        duration_filepath: Path,
+        pitch_filepath: Path,
+        normalized_durations: List,
+        normalized_pitches: List,
+    ) -> None:
+        """Save normalized sequences to files."""
+        np.save(duration_filepath, np.array(normalized_durations))
+        np.save(pitch_filepath, np.array(normalized_pitches))
+
+    def normalize_lyrics_and_sequences(
+        self,
+        gt_text: str,
+        original_lyrics: str,
+        pitch_sequence: List,
+        duration_sequence: List,
+        filename_stem: str,
+    ) -> Tuple[str, List, List]:
+        """Normalize lyrics and corresponding sequences."""
+        try:
+            normalization_result = self.lyric_normalizer.normalize_lyrics(
+                gt_lyrics=gt_text,
+                raw_lyrics=original_lyrics,
+                pitch_sequence=pitch_sequence,
+                duration_sequence=duration_sequence,
+                normalize_spaces=True,
+            )
+
+            normalized_lyrics = "".join(
+                normalization_result.get("normalized_texts", [])
+            )
+            normalized_durations = normalization_result.get(
+                "normalized_durations", []
+            )
+            normalized_pitches = normalization_result.get(
+                "normalized_pitches", []
+            )
+
+            return normalized_lyrics, normalized_durations, normalized_pitches
+
+        except Exception as e:
+            # print( f"  Error during text normalization for {filename_stem}: {e}")
+            return original_lyrics, duration_sequence, pitch_sequence
+
+    def process_metadata_line(self, line: str) -> Optional[str]:
+        """Process a single line from metadata file."""
+        line = line.strip()
+        if not line:
+            return None
+
+        parts = line.split("|")
+        if len(parts) < 2:
+            # print(f"Skipping malformed line: {line}")
+            return None
+
+        original_filename_stem = parts[0]
+        original_lyrics = parts[1]
+        other_columns = parts[2:]
+
+        wav_filepath, pitch_filepath, duration_filepath = self.get_file_paths(
+            original_filename_stem
+        )
+
+        # print("----------------------------------------------")
+        # print(f"Processing: {original_filename_stem}")
+        # print( f"  Original Lyrics: '{original_lyrics}' ({len(original_lyrics)})")
+
+        # Transcribe audio
+        gt_text = self.transcribe_audio(wav_filepath)
+        # print(f"  STT Result: '{gt_text[:50]}'")
+
+        error_checker = ErrorChecker()
+        is_error = error_checker.check_errors(gt_text)
+        if is_error:
+            self.log_error(
+                original_filename_stem, "W", original_lyrics, gt_text
+            )
+            return None
+
+        # Load sequences
+        pitch_sequence, duration_sequence = self.load_sequences(
+            pitch_filepath, duration_filepath
+        )
+        # print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
+        # print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
+
+        # Normalize
+        try:
+            normalized_lyrics, normalized_durations, normalized_pitches = (
+                self.normalize_lyrics_and_sequences(
+                    gt_text,
+                    original_lyrics,
+                    pitch_sequence,
+                    duration_sequence,
+                    original_filename_stem,
+                )
+            )
+
+            # print( f"  Normalized Lyrics: '{normalized_lyrics}' ({len(normalized_lyrics)})")
+            # print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
+            # print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
+
+            # Save normalized sequences
+            self.save_normalized_sequences(
+                duration_filepath,
+                pitch_filepath,
+                normalized_durations,
+                normalized_pitches,
+            )
+
+            # Prepare new metadata line
+            new_line_parts = [original_filename_stem, normalized_lyrics]
+            if other_columns:
+                new_line_parts.extend(other_columns)
+
+            return "|".join(new_line_parts)
+        except Exception as e:
+            self.log_error(
+                original_filename_stem, "D", original_lyrics, gt_text
+            )
+            return None
+
+    def log_error(
+        self,
+        filename: str,
+        error_type: str,
+        original_lyrics: str = "",
+        gt_text: str = "",
+    ) -> None:
+        """
+        오류를 error_list.txt에 기록합니다.
+
+        Args:
+            filename: 파일 이름
+            error_type: 오류 유형 ('W' for Whisper, 'D' for DTW)
+            original_lyrics: 원본 가사 (DTW 에러의 경우)
+            gt_text: Whisper STT 결과 (DTW 에러의 경우)
+        """
+        error_log_path = self.base_path / "error_list.txt"
+
+        # 오류 로그 파일이 없으면 헤더 추가
+        if not error_log_path.exists():
+            with open(error_log_path, "w", encoding="utf-8") as f:
+                f.write("filename|error_type|original_lyrics|gt_text\n")
+
+        with open(error_log_path, "a", encoding="utf-8") as f:
+            f.write(f"{filename}|{error_type}|{original_lyrics}|{gt_text}\n")
+
+    def verify_dataset_consistency(self) -> Dict[str, List[str]]:
+        """
+        데이터셋의 일관성을 검증합니다.
+        각 파일의 lyric length, pitch 개수, duration 개수가 모두 일치하는지 확인합니다.
+
+        Returns:
+            Dict[str, List[str]]: 검증 결과를 담은 딕셔너리
+                - 'errors': 오류가 있는 파일들의 목록
+                - 'warnings': 경고가 있는 파일들의 목록
+        """
+        print("\n=== Starting Dataset Consistency Verification ===")
+
+        errors = []
+        warnings = []
+
+        with open(self.metadata_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                parts = line.split("|")
+                if len(parts) < 2:
+                    continue
+
+                filename_stem = parts[0]
+                lyrics = parts[1]
+
+                # 파일 경로 가져오기
+                wav_filepath, pitch_filepath, duration_filepath = (
+                    self.get_file_paths(filename_stem)
+                )
+
+                # 파일 존재 여부 확인
+                if not all(
+                    p.exists()
+                    for p in [wav_filepath, pitch_filepath, duration_filepath]
+                ):
+                    errors.append(
+                        f"{filename_stem}: One or more required files are missing"
+                    )
+                    continue
+
+                try:
+                    # 데이터 로드
+                    pitch_sequence = np.load(pitch_filepath)
+                    duration_sequence = np.load(duration_filepath)
+
+                    # 길이 검증
+                    lyric_length = len(lyrics)
+                    pitch_length = len(pitch_sequence)
+                    duration_length = len(duration_sequence)
+
+                    # 모든 길이가 일치하는지 확인
+                    if not (lyric_length == pitch_length == duration_length):
+                        error_msg = (
+                            f"{filename_stem}: Length mismatch - "
+                            f"lyrics({lyric_length}), "
+                            f"pitch({pitch_length}), "
+                            f"duration({duration_length})"
+                        )
+                        errors.append(error_msg)
+
+                    # 추가 검증: pitch와 duration이 음수나 비정상적인 값을 가지지 않는지
+                    if np.any(pitch_sequence < 0):
+                        warnings.append(
+                            f"{filename_stem}: Contains negative pitch values"
+                        )
+                    if np.any(duration_sequence <= 0):
+                        errors.append(
+                            f"{filename_stem}: Contains non-positive duration values"
+                        )
+
+                except Exception as e:
+                    errors.append(
+                        f"{filename_stem}: Error during verification - {str(e)}"
+                    )
+
+        # 검증 결과 출력
+        print("\n=== Verification Results ===")
+        if errors:
+            print("\nErrors found:")
+            for error in errors:
+                print(f"- {error}")
+        else:
+            print("\nNo errors found!")
+
+        if warnings:
+            print("\nWarnings:")
+            for warning in warnings:
+                print(f"- {warning}")
+        else:
+            print("\nNo warnings!")
+
+        return {"errors": errors, "warnings": warnings}
+
+    def process_all_files(self) -> None:
+        """Process all files in the metadata file."""
+        if not self.model:
+            self.load_model()
+
+        processed_lines = []
+
+        with open(self.metadata_path, "r", encoding="utf-8") as f_meta:
+            for line in f_meta:
+                processed_line = self.process_metadata_line(line)
+                if processed_line:
+                    processed_lines.append(processed_line)
+
+        if processed_lines:
+            print(f"\nWriting normalized metadata to: {self.metadata_path}")
+            with open(self.metadata_path, "w", encoding="utf-8") as f_out:
+                for line in processed_lines:
+                    f_out.write(line + "\n")
+            print("Done.")
+
+            # 모든 처리가 완료된 후 검증 실행
+            print("\nStarting dataset verification...")
+            verification_results = self.verify_dataset_consistency()
+
+            # 검증 결과에 따라 적절한 메시지 출력
+            if verification_results["errors"]:
+                print("\nWARNING: Dataset verification found errors!")
+                print(
+                    "Please check the errors above and fix them before proceeding."
+                )
+            else:
+                print("\nDataset verification completed successfully!")
+
+        else:
+            print("No lines were processed to write to metadata.txt.")
+
+
+# Usage
+if __name__ == "__main__":
+    preprocessor = SVS_Preprocessor(
+        base_path="preprocessed_gv",  # or preprocessed_mssv
+        model_name="large-v3",
+        device="cuda",
+        language="ko",
+    )
+    preprocessor.process_all_files()

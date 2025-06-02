@@ -1,9 +1,10 @@
 import pathlib
-import multiprocessing as mp
+from multiprocessing import Pool, cpu_count
 import json
 
 import pandas as pd
 import numpy as np
+from g2pk2 import G2p
 import midii
 
 
@@ -178,7 +179,7 @@ def print_stat(data, verbose=False):
 
 def tempo_statistics(dir_path, parallel=False, verbose=False):
     if parallel:
-        with mp.Pool(mp.cpu_count()) as p:
+        with Pool(cpu_count()) as p:
             dominated_tempo_ratio_list = p.map(
                 get_midi_dominated_tempo,
                 get_files(dir_path, "mid"),
@@ -196,3 +197,64 @@ def tempo_statistics(dir_path, parallel=False, verbose=False):
     print(f"90 >= {np.sum(data_np >= 90)}")
     print(f"80 >= {np.sum(data_np >= 80)}")
     print(f"50 >= {np.sum(data_np >= 0)}")
+
+
+g2p_instance_worker = None
+
+
+def init_worker():
+    """Initialize a G2p instance for each worker process."""
+    global g2p_instance_worker
+    g2p_instance_worker = G2p()
+    # print(f"Worker {os.getpid()} G2p_instance_worker initialized.") # 디버깅용
+
+
+def apply_g2p_to_text(text_to_process):
+    """Applies g2p to a single text string using the worker's G2p instance."""
+    if g2p_instance_worker is None:
+        # Fallback, though initializer should prevent this in Pool
+        temp_g2p = G2p()
+        return temp_g2p(text_to_process)
+    return g2p_instance_worker(text_to_process)
+
+
+def g2p_metadata(file_path):
+    df = pd.read_csv(
+        file_path,
+        sep="|",
+        header=None,
+        names=["ID", "Text", "Num1", "Num2", "Category"],
+    )
+
+    # 원본 텍스트와 길이를 저장
+    original_texts = df["Text"].astype(str).tolist()
+    df["Original_Length"] = df["Text"].astype(str).apply(len)
+
+    # 멀티프로세싱 Pool을 사용하여 g2p 병렬 적용
+    num_processes = cpu_count()
+    g2p_processed_texts = []
+    with Pool(processes=num_processes, initializer=init_worker) as pool:
+        g2p_processed_texts = pool.map(apply_g2p_to_text, original_texts)
+    df["g2p_Text"] = g2p_processed_texts
+    df["g2p_Length"] = df["g2p_Text"].astype(str).apply(len)
+
+    # 원본에 비해 길이가 줄어든 row를 식별
+    # g2p_Length >= Original_Length 인 경우만 유지
+    rows_to_keep_mask = df["g2p_Length"] >= df["Original_Length"]
+
+    # print(f"\n원본 데이터 행 개수: {len(df)}")
+    df_updated = df[
+        rows_to_keep_mask
+    ].copy()  # .copy()를 사용하여 SettingWithCopyWarning 방지
+    # print(f"길이 조건 필터링 후 행 개수: {len(df_updated)}")
+
+    # 필터링된 DataFrame의 'Text' 컬럼을 g2p 변환 결과로 업데이트
+    if not df_updated.empty:
+        df_updated.loc[:, "Text"] = df_updated["g2p_Text"]
+
+    # 최종적으로 필요한 컬럼만 선택 (중간 과정 컬럼 제외)
+    final_columns = ["ID", "Text", "Num1", "Num2", "Category"]
+    df_final_result = df_updated[final_columns]
+    df_final_result.to_csv(
+        file_path, sep="|", header=False, index=False, encoding="utf-8"
+    )
