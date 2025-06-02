@@ -251,9 +251,13 @@ class LyricNormalizer:
         )
 
         # 2. DTW를 통한 정렬
-        _, _, _, syllable_mapping = self.dtw(
-            gt_lyrics, raw_lyrics, space=False
-        )
+        try:
+            _, _, _, syllable_mapping = self.dtw(
+                gt_lyrics, raw_lyrics, space=True
+            )
+        except Exception as e:
+            print(f"Error in DTW: {e}")
+            return None
 
         # 3. 정규화 결과를 저장할 리스트들
         normalized_lyrics = []
@@ -659,33 +663,29 @@ class SVS_Preprocessor:
         original_lyrics: str,
         pitch_sequence: List,
         duration_sequence: List,
-        filename_stem: str,
-    ) -> Tuple[str, List, List]:
+    ):
         """Normalize lyrics and corresponding sequences."""
-        try:
-            normalization_result = self.lyric_normalizer.normalize_lyrics(
-                gt_lyrics=gt_text,
-                raw_lyrics=original_lyrics,
-                pitch_sequence=pitch_sequence,
-                duration_sequence=duration_sequence,
-                normalize_spaces=True,
-            )
 
-            normalized_lyrics = "".join(
-                normalization_result.get("normalized_texts", [])
-            )
-            normalized_durations = normalization_result.get(
-                "normalized_durations", []
-            )
-            normalized_pitches = normalization_result.get(
-                "normalized_pitches", []
-            )
+        normalization_result = self.lyric_normalizer.normalize_lyrics(
+            gt_lyrics=gt_text,
+            raw_lyrics=original_lyrics,
+            pitch_sequence=pitch_sequence,
+            duration_sequence=duration_sequence,
+            normalize_spaces=True,
+        )
 
-            return normalized_lyrics, normalized_durations, normalized_pitches
+        if normalization_result is None:
+            return None, None, None
 
-        except Exception as e:
-            # print( f"  Error during text normalization for {filename_stem}: {e}")
-            return original_lyrics, duration_sequence, pitch_sequence
+        normalized_lyrics = "".join(
+            normalization_result.get("normalized_texts", [])
+        )
+        normalized_durations = normalization_result.get(
+            "normalized_durations", []
+        )
+        normalized_pitches = normalization_result.get("normalized_pitches", [])
+
+        return normalized_lyrics, normalized_durations, normalized_pitches
 
     def process_metadata_line(self, line: str) -> Optional[str]:
         """Process a single line from metadata file."""
@@ -708,7 +708,7 @@ class SVS_Preprocessor:
 
         # print("----------------------------------------------")
         # print(f"Processing: {original_filename_stem}")
-        # print( f"  Original Lyrics: '{original_lyrics}' ({len(original_lyrics)})")
+        # print( f"  Original Lyrics: '{original_lyrics}'")
 
         # Transcribe audio
         gt_text = self.transcribe_audio(wav_filepath)
@@ -737,11 +737,16 @@ class SVS_Preprocessor:
                     original_lyrics,
                     pitch_sequence,
                     duration_sequence,
-                    original_filename_stem,
                 )
             )
 
-            # print( f"  Normalized Lyrics: '{normalized_lyrics}' ({len(normalized_lyrics)})")
+            if normalized_lyrics is None:
+                self.log_error(
+                    original_filename_stem, "D", original_lyrics, gt_text
+                )
+                return None
+
+            # print( f"  Normalized Lyrics: '{normalized_lyrics}'")
             # print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
             # print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
 
@@ -777,7 +782,7 @@ class SVS_Preprocessor:
 
         Args:
             filename: 파일 이름
-            error_type: 오류 유형 ('W' for Whisper, 'D' for DTW)
+            error_type: 오류 유형 ('W' for Whisper error, 'D' for DTW calculation error)
             original_lyrics: 원본 가사 (DTW 에러의 경우)
             gt_text: Whisper STT 결과 (DTW 에러의 경우)
         """

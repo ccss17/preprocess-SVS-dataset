@@ -22,6 +22,7 @@ from .util import (
     _preprocess_silence_pitch_zero,
     _preprocess_merge_silence,
     _preprocess_remove_short_silence,
+    split_json_by_silence,
 )
 
 
@@ -144,9 +145,10 @@ def split_audio(y, sr, start_time, end_time, output_filename):
 def preprocess_one(
     wav_path,
     json_path,
-    out_pitch_dir_path,
-    out_duration_dir_path,
-    out_wavs_dir_path,
+    out_path,
+    # out_pitch_dir_path,
+    # out_duration_dir_path,
+    # out_wavs_dir_path,
 ):
     wav_path = Path(wav_path)
     json_path = Path(json_path)
@@ -155,9 +157,12 @@ def preprocess_one(
     with open(json_path, "r", encoding="utf-8") as f:
         json_data = json.load(f)
 
-    out_pitch_dir_path = Path(out_pitch_dir_path)
-    out_duration_dir_path = Path(out_duration_dir_path)
-    out_wavs_dir_path = Path(out_wavs_dir_path)
+    out_pitch_dir_path = Path(out_path) / "pitch"
+    out_duration_dir_path = Path(out_path) / "duration"
+    out_wavs_dir_path = Path(out_path) / "wav"
+    # out_pitch_dir_path = Path(out_pitch_dir_path)
+    # out_duration_dir_path = Path(out_duration_dir_path)
+    # out_wavs_dir_path = Path(out_wavs_dir_path)
     out_pitch_dir_path.mkdir(exist_ok=True, parents=True)
     out_duration_dir_path.mkdir(exist_ok=True, parents=True)
     out_wavs_dir_path.mkdir(exist_ok=True, parents=True)
@@ -498,10 +503,58 @@ def midi_to_json(midi_filepath, json_filepath):
 
 
 def midis_to_jsons(midi_dirpath, json_dirpath):
+    json_dirpath = Path(json_dirpath)
     with mp.Pool(mp.cpu_count()) as p:
-        args = zip(
-            list(get_files(midi_dirpath, "mid", sort=True)),
-            list(get_files(json_dirpath, "json", sort=True)),
-        )
-        print(list(args))
+        args = []
+        mid_paths = get_files(midi_dirpath, "mid", sort=True)
+        for mid_path in mid_paths:
+            arg = (
+                mid_path,
+                json_dirpath / Path(mid_path).with_suffix(".json").name,
+            )
+            args.append(arg)
         p.starmap(midi_to_json, args)
+
+
+def split_json(json_filepath, split_json_filepath):
+    split_json_data = split_json_by_silence(json_filepath, min_length=6)
+    split_json_filepath = Path(split_json_filepath)
+    split_json_filepath.parent.mkdir(exist_ok=True, parents=True)
+    with open(split_json_filepath, "w", encoding="utf-8") as f:
+        json.dump(split_json_data, f, indent=4, ensure_ascii=False)
+
+
+def split_jsons(json_dirpath, split_json_dirpath):
+    json_paths = get_files(json_dirpath, "json", sort=True)
+    split_json_dirpath = Path(split_json_dirpath)
+    args = []
+    for json_path in json_paths:
+        arg = (
+            json_path,
+            split_json_dirpath / Path(json_path).name,
+        )
+        args.append(arg)
+
+    with mp.Pool(mp.cpu_count()) as p:
+        p.starmap(split_json, args)
+
+
+def save_duration_pitch_metadata_split_audio(
+    wav_dirpath,
+    split_json_dirpath,
+    preprocessed_mssv_path,
+):
+    with mp.Pool(mp.cpu_count()) as p:
+        wav_paths = get_files(wav_dirpath, "wav", sort=True)
+        split_json_paths = get_files(split_json_dirpath, "json", sort=True)
+        preprocessed_mssv_paths = [
+            preprocessed_mssv_path for _ in range(len(list(split_json_paths)))
+        ]
+        args = zip(wav_paths, split_json_paths, preprocessed_mssv_paths)
+        metadata_list = p.starmap(preprocess_one, args)
+    preprocessed_mssv_path = Path(preprocessed_mssv_path)
+    preprocessed_mssv_path.mkdir(exist_ok=True, parents=True)
+    with open(
+        f"{preprocessed_mssv_path}/metadata.txt", "w", encoding="utf-8"
+    ) as f:
+        f.write("".join(metadata_list))
