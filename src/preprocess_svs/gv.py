@@ -10,7 +10,7 @@ import midii
 import numpy as np
 import librosa
 import soundfile
-from g2pk import G2p
+from g2pk2 import G2p
 
 
 from .util import (

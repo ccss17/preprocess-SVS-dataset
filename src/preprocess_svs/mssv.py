@@ -10,7 +10,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import librosa
-from g2pk import G2p
+from g2pk2 import G2p
 import soundfile
 import midii
 
