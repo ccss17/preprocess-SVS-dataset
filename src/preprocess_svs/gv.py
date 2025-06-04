@@ -229,7 +229,7 @@ def remove_abnormal_file(gv_dir):
 
 def _singer_id(filename):
     sid = re.findall(r"SINGER_\d\d", filename)[0]
-    return int(sid[1:]) + 44
+    return int(sid[-2:]) + 44
 
 
 def split_audio(y, sr, start_time, end_time, output_filename):
