@@ -1,3 +1,4 @@
+import re
 import json
 from pathlib import Path
 import multiprocessing as mp
@@ -227,9 +228,8 @@ def remove_abnormal_file(gv_dir):
 
 
 def _singer_id(filename):
-    # sid = re.findall(r"s\d\d", filename)[0]
-    # return int(sid[1:]) + 26
-    return 999
+    sid = re.findall(r"SINGER_\d\d", filename)[0]
+    return int(sid[1:]) + 44
 
 
 def split_audio(y, sr, start_time, end_time, output_filename):
