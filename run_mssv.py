@@ -4,17 +4,6 @@ import preprocess_svs as ps
 from preprocess_svs import mssv
 from preprocess_svs import SVS_Preprocessor
 
-# -------------------------------------------
-
-mssv_path = "D:/dataset/004.다화자 가창 데이터"
-
-rprint(mssv.find_exclusive_two_type_files("*.mid", "*.wav", mssv_path))
-rprint(mssv.check_abnormal_file(mssv_path))
-rprint(mssv.rename_abnormal_file(mssv_path))
-rprint(mssv.remove_abnormal_file(mssv_path))
-
-# -------------------------------------------
-
 midi_dirpath = "sample/mssv/midi"
 json_dirpath = "sample/mssv/json"
 split_json_dirpath = "sample/mssv/split_json"

@@ -405,14 +405,14 @@ def rename_abnormal_file(mssv_dir):
     return renamed_log, error_log
 
 
-def find_exclusive_two_type_files(type1, type2, dir_path):
+def find_exclusive_two_type_files(type1, type2, dir1_path, dir2_path):
     dir_path = pathlib.Path(dir_path)
     type1_files_by_basename = defaultdict(list)
     type2_files_by_basename = defaultdict(list)
 
-    for type1_file_path in dir_path.rglob(f"*.{type1}"):
+    for type1_file_path in dir1_path.rglob(f"*.{type1}"):
         type1_files_by_basename[type1_file_path.stem].append(type1_file_path)
-    for type2_file_path in dir_path.rglob(f"*.{type2}"):
+    for type2_file_path in dir2_path.rglob(f"*.{type2}"):
         type2_files_by_basename[type2_file_path.stem].append(type2_file_path)
 
     type1_basenames = set(type1_files_by_basename.keys())
