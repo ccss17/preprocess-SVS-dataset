@@ -146,9 +146,6 @@ def preprocess_one(
     wav_path,
     json_path,
     out_path,
-    # out_pitch_dir_path,
-    # out_duration_dir_path,
-    # out_wavs_dir_path,
 ):
     wav_path = Path(wav_path)
     json_path = Path(json_path)
@@ -160,9 +157,6 @@ def preprocess_one(
     out_pitch_dir_path = Path(out_path) / "pitch"
     out_duration_dir_path = Path(out_path) / "duration"
     out_wavs_dir_path = Path(out_path) / "wav"
-    # out_pitch_dir_path = Path(out_pitch_dir_path)
-    # out_duration_dir_path = Path(out_duration_dir_path)
-    # out_wavs_dir_path = Path(out_wavs_dir_path)
     out_pitch_dir_path.mkdir(exist_ok=True, parents=True)
     out_duration_dir_path.mkdir(exist_ok=True, parents=True)
     out_wavs_dir_path.mkdir(exist_ok=True, parents=True)
@@ -175,14 +169,18 @@ def preprocess_one(
         lyric = "".join([item["lyric"] for item in chunk["chunk"]])
         # lyric = " ".join([x for x in lyric.split()])
         metadata += f"{subfilename}|{lyric}|{_singer_id(filename)}|11|SV\n"
+        pitch_sub_file = f"{out_pitch_dir_path}/{subfilename}.npy"
+        #if Path(pitch_sub_file).exists():
+        #    continue
         np.save(
-            f"{out_pitch_dir_path}/{subfilename}.npy",
+            pitch_sub_file,
             np.array([item["pitch"] for item in chunk["chunk"]]),
         )
         np.save(
             f"{out_duration_dir_path}/{subfilename}.npy",
             np.array([item["frames"] for item in chunk["chunk"]]),
         )
+        '''
         split_audio(
             y,
             sr,
@@ -190,6 +188,7 @@ def preprocess_one(
             end_time=chunk["chunk_info"]["end_time"],
             output_filename=f"{out_wavs_dir_path}/{subfilename}.wav",
         )
+        '''
     return metadata
 
 
@@ -406,7 +405,8 @@ def rename_abnormal_file(mssv_dir):
 
 
 def find_exclusive_two_type_files(type1, type2, dir1_path, dir2_path):
-    dir_path = pathlib.Path(dir_path)
+    dir1_path = pathlib.Path(dir1_path)
+    dir2_path = pathlib.Path(dir2_path)
     type1_files_by_basename = defaultdict(list)
     type2_files_by_basename = defaultdict(list)
 
@@ -499,7 +499,10 @@ def verify_midi_files_lyrics_has_no_time(dir_path, parallel=False):
 
 def midi_to_json(midi_filepath, json_filepath):
     notes = midi_to_note_list(midi_filepath)
-    preprocess_notes(notes, json_filepath)
+    try:
+        preprocess_notes(notes, json_filepath)
+    except:
+        return
 
 
 def midis_to_jsons(midi_dirpath, json_dirpath):
@@ -544,13 +547,24 @@ def save_duration_pitch_metadata_split_audio(
     split_json_dirpath,
     preprocessed_mssv_path,
 ):
+    wav_dirpath = Path(wav_dirpath)
     with mp.Pool(mp.cpu_count()) as p:
-        wav_paths = get_files(wav_dirpath, "wav", sort=True)
+        # wav_paths = get_files(wav_dirpath, "wav", sort=True)
+        # split_json_paths = get_files(split_json_dirpath, "json", sort=True)
+        # preprocessed_mssv_paths = [
+            # preprocessed_mssv_path for _ in range(len(list(split_json_paths)))
+        # ]
+        # args = zip(wav_paths, split_json_paths, preprocessed_mssv_paths)
+
+        args = []
         split_json_paths = get_files(split_json_dirpath, "json", sort=True)
-        preprocessed_mssv_paths = [
-            preprocessed_mssv_path for _ in range(len(list(split_json_paths)))
-        ]
-        args = zip(wav_paths, split_json_paths, preprocessed_mssv_paths)
+        for split_json_path in split_json_paths:
+            arg = (
+                wav_dirpath / Path(split_json_path).with_suffix(".wav").name,
+                split_json_path,  
+                preprocessed_mssv_path 
+            )
+            args.append(arg)
         metadata_list = p.starmap(preprocess_one, args)
     preprocessed_mssv_path = Path(preprocessed_mssv_path)
     preprocessed_mssv_path.mkdir(exist_ok=True, parents=True)

@@ -88,7 +88,12 @@ def _preprocess_json(json_path, mid_path, out_path):
     out_path = Path(out_path)
     json_path = Path(json_path)
     mid_path = Path(mid_path)
+    if out_path.exists():
+        return
     if not json_path.stem == mid_path.stem == out_path.stem:
+        print(json_path, json_path.stem)
+        print(mid_path, mid_path.stem)
+        print(out_path, out_path.stem)
         raise ValueError
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -104,7 +109,10 @@ def _preprocess_json(json_path, mid_path, out_path):
     df.loc[df["lyric"] == "", "lyric"] = " "
 
     # quantize
-    mid = midii.MidiFile(mid_path, convert_1_to_0=True)
+    try:
+        mid = midii.MidiFile(mid_path, convert_1_to_0=True)
+    except FileNotFoundError:
+        return
     unit_beats = midii.NOTE["n/32"].beat
     unit_ticks = midii.beat2tick(unit_beats, ticks_per_beat=mid.ticks_per_beat)
     top_tempo = mid.tempo_rank()[0][0]
@@ -142,14 +150,23 @@ def _preprocess_json(json_path, mid_path, out_path):
 
 def preprocess_json(json_dir_path, mid_dir_path, out_path, parallel=False):
     if parallel:
-        with mp.Pool(mp.cpu_count()) as p:
-            json_paths = list(get_files(json_dir_path, "json", sort=True))
-            out_paths = [
+        mid_dir_path = Path(mid_dir_path)
+        json_paths = list(get_files(json_dir_path, "json", sort=True))
+        args = []
+        for json_path in json_paths:
+            arg = (
+                json_path,
+                mid_dir_path / Path(json_path).with_suffix(".mid").name,
                 Path(out_path) / Path(json_path).name
-                for json_path in json_paths
-            ]
-            mid_paths = get_files(mid_dir_path, "mid", sort=True)
-            args = zip(json_paths, mid_paths, out_paths)
+            )
+            args.append(arg)
+        with mp.Pool(mp.cpu_count()) as p:
+            # out_paths = [
+                # Path(out_path) / Path(json_path).name
+                # for json_path in json_paths
+            # ]
+            # mid_paths = get_files(mid_dir_path, "mid", sort=True)
+            # args = zip(json_paths, mid_paths, out_paths)
             p.starmap(_preprocess_json, args)
     else:
         json_paths = get_files(json_dir_path, "json", sort=True)
@@ -290,6 +307,8 @@ def verify_json_notes_sorted_by_time(dir_path, parallel=False):
 def split_json(json_filepath, split_json_filepath):
     split_json = split_json_by_silence(json_filepath, min_length=6)
     split_json_filepath = Path(split_json_filepath)
+    if split_json_filepath.exists():
+        return
     split_json_filepath.parent.mkdir(exist_ok=True, parents=True)
     with open(split_json_filepath, "w", encoding="utf-8") as f:
         json.dump(split_json, f, indent=4, ensure_ascii=False)
@@ -326,27 +345,40 @@ def preprocess_one(
 
     metadata = ""
     filename = wav_path.stem
-    y, sr = librosa.load(wav_path, sr=None)
+    try:
+        y, sr = librosa.load(wav_path, sr=None)
+    except FileNotFoundError:
+        return
     for i, chunk in enumerate(json_data):
         subfilename = f"{filename}_{i:02}"
         lyric = "".join([item["lyric"] for item in chunk["chunk"]])
         # lyric = " ".join([x for x in lyric.split()])
         metadata += f"{subfilename}|{lyric}|{_singer_id(filename)}|11|SV\n"
-        np.save(
-            f"{out_pitch_dir_path}/{subfilename}.npy",
-            np.array([item["pitch"] for item in chunk["chunk"]]),
-        )
-        np.save(
-            f"{out_duration_dir_path}/{subfilename}.npy",
-            np.array([item["frames"] for item in chunk["chunk"]]),
-        )
-        split_audio(
-            y,
-            sr,
-            start_time=chunk["chunk_info"]["start_time"],
-            end_time=chunk["chunk_info"]["end_time"],
-            output_filename=f"{out_wavs_dir_path}/{subfilename}.wav",
-        )
+        pitch_subfile = f"{out_pitch_dir_path}/{subfilename}.npy"
+        pitch_subfile = Path(pitch_subfile)
+        duration_subfile = f"{out_duration_dir_path}/{subfilename}.npy"
+        duration_subfile = Path(duration_subfile)
+        wav_subfile = f"{out_wavs_dir_path}/{subfilename}.wav"
+        wav_subfile = Path(wav_subfile)
+        if not pitch_subfile.exists() or True:
+            np.save(
+                pitch_subfile,
+                np.array([item["pitch"] for item in chunk["chunk"]]),
+            )
+        if not duration_subfile.exists() or True:
+            np.save(
+                duration_subfile,
+                np.array([item["frames"] for item in chunk["chunk"]]),
+            )
+        if not wav_subfile.exists():
+            split_audio(
+                y,
+                sr,
+                start_time=chunk["chunk_info"]["start_time"],
+                end_time=chunk["chunk_info"]["end_time"],
+                output_filename=wav_subfile,
+                # output_filename="{out_wavs_dir_path}/{subfilename}.wav",
+            )
     return metadata
 
 
@@ -355,13 +387,25 @@ def save_duration_pitch_metadata_split_audio(
     split_json_dirpath,
     preprocessed_gv_path,
 ):
-    with mp.Pool(mp.cpu_count()) as p:
-        wav_paths = get_files(wav_dirpath, "wav", sort=True)
-        split_json_paths = get_files(split_json_dirpath, "json", sort=True)
-        preprocessed_gv_paths = [
-            preprocessed_gv_path for _ in range(len(list(split_json_paths)))
-        ]
-        args = zip(wav_paths, split_json_paths, preprocessed_gv_paths)
+    wav_dirpath = Path(wav_dirpath)
+    json_paths = list(get_files(split_json_dirpath, "json", sort=True))
+    args = []
+    for json_path in json_paths:
+        arg = (
+            wav_dirpath / Path(json_path).with_suffix(".wav").name,
+            json_path,
+            preprocessed_gv_path
+        )
+        args.append(arg)
+
+    with mp.Pool(mp.cpu_count() * 2) as p:
+    # with mp.Pool(mp.cpu_count() * 2) as p:
+        # wav_paths = get_files(wav_dirpath, "wav", sort=True)
+        # split_json_paths = get_files(split_json_dirpath, "json", sort=True)
+        # preprocessed_gv_paths = [
+            # preprocessed_gv_path for _ in range(len(list(split_json_paths)))
+        # ]
+        # args = zip(wav_paths, split_json_paths, preprocessed_gv_paths)
         metadata_list = p.starmap(preprocess_one, args)
     preprocessed_gv_path = Path(preprocessed_gv_path)
     preprocessed_gv_path.mkdir(exist_ok=True, parents=True)

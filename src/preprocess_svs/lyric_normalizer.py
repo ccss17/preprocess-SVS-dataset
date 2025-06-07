@@ -25,45 +25,54 @@ class ErrorChecker:
         Returns:
             Tuple[bool, List[str]]: (오인식 여부, 오류 메시지 리스트)
         """
-        is_error = False
+        try:
+            is_error = False
 
-        # 1. 숫자 포함 여부 확인
-        if any(char.isdigit() for char in transcribed_text):
-            is_error = True
+            # 1. 숫자 포함 여부 확인
+            if any(char.isdigit() for char in transcribed_text):
+                is_error = True
 
-        # 2. 한글 외 언어 포함 여부 확인 (공백과 특수문자 제외)
-        non_hangul_chars = [
-            char
-            for char in transcribed_text
-            if not self._is_hangul(char)
-            and not char.isspace()
-            and not char in ".,!?()[]{}'\"-_"
-        ]
-        if non_hangul_chars:
-            is_error = True
+            # 2. 한글 외 언어 포함 여부 확인 (공백과 특수문자 제외)
+            non_hangul_chars = [
+                char
+                for char in transcribed_text
+                if not self._is_hangul(char)
+                and not char.isspace()
+                and not char in ".,!?()[]{}'\"-_"
+            ]
+            if non_hangul_chars:
+                is_error = True
 
-        # 3. 멜리스마 확인
-        if self._is_melisma(transcribed_text):
-            is_error = True
+            # 3. 멜리스마 확인
+            if self._is_melisma(transcribed_text):
+                is_error = True
 
-        # 4. 한글 가사 없는 경우
-        if not any(self._is_hangul(char) for char in transcribed_text):
-            is_error = True
+            # 4. 한글 가사 없는 경우
+            if not any(self._is_hangul(char) for char in transcribed_text):
+                is_error = True
 
-        # 5. '자막 제공' 텍스트 포함 여부
-        if "자막 제공" in transcribed_text:
-            is_error = True
+            # 5. '자막 제공' 텍스트 포함 여부
+            if "자막 제공" in transcribed_text:
+                is_error = True
 
-        return is_error
+            return is_error
+        except IndexError as e:
+            print(f"처리중인 텍스트: {transcribed_text}")
+
+            return True
 
     def _is_hangul(self, char: str) -> bool:
         """문자가 한글인지 확인합니다."""
         return "HANGUL" in unicodedata.name(char)
+    
+    def _is_hangul_syllable(self, char: str) -> bool:
+        """문자가 완성형 한글 음절인지 확인합니다."""
+        return 0xAC00 <= ord(char) <= 0xD7A3
 
     def _is_melisma(self, text: str) -> bool:
         """멜리스마 여부를 확인합니다."""
         # 1. 한 음절로만 구성된 경우
-        if len(text.strip()) == 1 and self._is_hangul(text.strip()):
+        if len(text.strip()) == 1 and self._is_hangul_syllable(text.strip()):
             return True
 
         # 2. 초성 'ㅇ' 또는 'ㅎ'이며 중성과 종성이 동일한 3개 이상의 음절이 연속되는 경우
@@ -72,7 +81,7 @@ class ErrorChecker:
             return False
 
         for i in range(len(text) - 2):
-            if not all(self._is_hangul(char) for char in text[i : i + 3]):
+            if not all(self._is_hangul_syllable(char) for char in text[i : i + 3]):
                 continue
 
             # 각 음절을 자모로 분해
@@ -94,7 +103,7 @@ class ErrorChecker:
 
     def _decompose_hangul(self, char: str) -> Tuple[str, str, str]:
         """한글 음절을 초성, 중성, 종성으로 분해합니다."""
-        if not self._is_hangul(char):
+        if not self._is_hangul_syllable(char):
             return ("", "", "")
 
         code = ord(char) - 0xAC00
@@ -238,17 +247,21 @@ class LyricNormalizer:
                 'normalization_info': List[Dict]  # 정규화 정보
             }
         """
-        _gt_lyrics = re.sub(r"[^ㄱ-ㅎ가-힣]+", "", gt_lyrics)
-        _raw_lyrics = re.sub(r"[^ㄱ-ㅎ가-힣]+", "", raw_lyrics)
-        gt_syllables = list(_gt_lyrics)
-        raw_syllables = list(_raw_lyrics)
+        try:
+            _gt_lyrics = re.sub(r"[^ㄱ-ㅎ가-힣]+", "", gt_lyrics)
+            _raw_lyrics = re.sub(r"[^ㄱ-ㅎ가-힣]+", "", raw_lyrics)
+            gt_syllables = list(_gt_lyrics)
+            raw_syllables = list(_raw_lyrics)
 
-        # 1. 전처리 (remove silence from pitch, duration sequence)
-        pitch_sequence, duration_sequence, space_indices = (
-            self.remove_silence_from_pitch_and_duration(
-                pitch_sequence, duration_sequence
+            # 1. 전처리 (remove silence from pitch, duration sequence)
+            pitch_sequence, duration_sequence, space_indices = (
+                self.remove_silence_from_pitch_and_duration(
+                    pitch_sequence, duration_sequence
+                )
             )
-        )
+        except Exception as e:
+            print(f"error1 in normalize_lyric: {e}")
+            return None
 
         # 2. DTW를 통한 정렬
         try:
@@ -267,56 +280,64 @@ class LyricNormalizer:
         current_idx = 0  # 현재 정규화된 텍스트의 인덱스
 
         # 4. syllable_mapping을 순회하며 정규화 수행
-        for gt_idx, raw_indices in syllable_mapping.items():
-            if len(raw_indices) == 1:
-                # 1:1 매핑 처리
-                lyrics, pitches, durations, infos = (
-                    self.normalize_one_to_one_mapping(
-                        gt_syllables,
-                        gt_idx,
-                        raw_indices,
-                        pitch_sequence,
-                        duration_sequence,
-                        current_idx,
+        try:
+            for gt_idx, raw_indices in syllable_mapping.items():
+                if len(raw_indices) == 1:
+                    # 1:1 매핑 처리
+                    lyrics, pitches, durations, infos = (
+                        self.normalize_one_to_one_mapping(
+                            gt_syllables,
+                            gt_idx,
+                            raw_indices,
+                            pitch_sequence,
+                            duration_sequence,
+                            current_idx,
+                        )
                     )
-                )
-            else:
-                # 1:N 매핑 처리
-                lyrics, pitches, durations, infos = (
-                    self.normalize_one_to_many_mapping(
-                        gt_syllables,
-                        gt_idx,
-                        raw_syllables,
-                        raw_indices,
-                        pitch_sequence,
-                        duration_sequence,
-                        current_idx,
+                else:
+                    # 1:N 매핑 처리
+                    lyrics, pitches, durations, infos = (
+                        self.normalize_one_to_many_mapping(
+                            gt_syllables,
+                            gt_idx,
+                            raw_syllables,
+                            raw_indices,
+                            pitch_sequence,
+                            duration_sequence,
+                            current_idx,
+                        )
                     )
-                )
 
-            normalized_lyrics.extend(lyrics)
-            normalized_pitches.extend(pitches)
-            normalized_durations.extend(durations)
-            normalization_infos.extend(infos)
-            current_idx += len(lyrics)  # 인덱스 업데이트
+                normalized_lyrics.extend(lyrics)
+                normalized_pitches.extend(pitches)
+                normalized_durations.extend(durations)
+                normalization_infos.extend(infos)
+                current_idx += len(lyrics)  # 인덱스 업데이트
+        except Exception as e:
+            print(f"Error2 in normalize_lyric: {e}")
+            return None
 
         # 5. raw text의 공백 위치 복원
-        if normalize_spaces:
-            insertion_points = self.find_space_insertion_points(
-                raw_lyrics, normalization_infos, space_indices
-            )
-            (
-                normalized_lyrics,
-                normalized_pitches,
-                normalized_durations,
-                normalization_infos,
-            ) = self.insert_spaces(
-                normalized_lyrics,
-                normalized_pitches,
-                normalized_durations,
-                normalization_infos,
-                insertion_points,
-            )
+        try:
+            if normalize_spaces:
+                insertion_points = self.find_space_insertion_points(
+                    raw_lyrics, normalization_infos, space_indices
+                )
+                (
+                    normalized_lyrics,
+                    normalized_pitches,
+                    normalized_durations,
+                    normalization_infos,
+                ) = self.insert_spaces(
+                    normalized_lyrics,
+                    normalized_pitches,
+                    normalized_durations,
+                    normalization_infos,
+                    insertion_points,
+                )
+        except Exception as e:
+            print(f"Error3 in normalize_lyric: {e}")
+            return None
 
         return {
             "normalized_texts": normalized_lyrics,
@@ -611,6 +632,7 @@ class SVS_Preprocessor:
 
         # Initialize paths
         self.metadata_path = self.base_path / "metadata.txt"
+        self.pre_metadata_path = self.base_path / "pre_metadata.txt"
         self.wav_path = self.base_path / "wav"
         self.pitch_path = self.base_path / "pitch"
         self.duration_path = self.base_path / "duration"
@@ -691,11 +713,12 @@ class SVS_Preprocessor:
         """Process a single line from metadata file."""
         line = line.strip()
         if not line:
+            print("No line")
             return None
 
         parts = line.split("|")
         if len(parts) < 2:
-            # print(f"Skipping malformed line: {line}")
+            print(f"Skipping malformed line: {line}")
             return None
 
         original_filename_stem = parts[0]
@@ -706,13 +729,17 @@ class SVS_Preprocessor:
             original_filename_stem
         )
 
-        # print("----------------------------------------------")
-        # print(f"Processing: {original_filename_stem}")
-        # print( f"  Original Lyrics: '{original_lyrics}'")
+        print("----------------------------------------------")
+        print(f"Processing: {original_filename_stem}")
+        print( f"  Original Lyrics: '{original_lyrics}, {len(original_lyrics)}'")
 
         # Transcribe audio
-        gt_text = self.transcribe_audio(wav_filepath)
-        # print(f"  STT Result: '{gt_text[:50]}'")
+        try:
+            gt_text = self.transcribe_audio(wav_filepath)
+            print(f"  STT Result: '{gt_text}'")
+        except Exception as e:
+            print(f"wav issue in {original_filename_stem}")
+            return None
 
         error_checker = ErrorChecker()
         is_error = error_checker.check_errors(gt_text)
@@ -720,14 +747,15 @@ class SVS_Preprocessor:
             self.log_error(
                 original_filename_stem, "W", original_lyrics, gt_text
             )
+            print("is_error!")
             return None
 
         # Load sequences
         pitch_sequence, duration_sequence = self.load_sequences(
             pitch_filepath, duration_filepath
         )
-        # print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
-        # print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
+        print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
+        print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
 
         # Normalize
         try:
@@ -739,16 +767,17 @@ class SVS_Preprocessor:
                     duration_sequence,
                 )
             )
-
+            
             if normalized_lyrics is None:
                 self.log_error(
                     original_filename_stem, "D", original_lyrics, gt_text
                 )
+                print("error in normalized!")
                 return None
 
-            # print( f"  Normalized Lyrics: '{normalized_lyrics}'")
-            # print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
-            # print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
+            print( f"  Normalized Lyrics: '{normalized_lyrics}', {len(normalized_lyrics)}")
+            print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
+            print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
 
             # Save normalized sequences
             self.save_normalized_sequences(
@@ -768,6 +797,8 @@ class SVS_Preprocessor:
             self.log_error(
                 original_filename_stem, "D", original_lyrics, gt_text
             )
+            print("error in norm seqeunce")
+            print(f"Error message: {e}")
             return None
 
     def log_error(
@@ -898,35 +929,42 @@ class SVS_Preprocessor:
             self.load_model()
 
         processed_lines = []
+        
+        try:
+            with open(self.metadata_path, "r", encoding="utf-8") as f_in, \
+                open(self.pre_metadata_path, "w", encoding="utf-8") as f_out:
+                for line in f_in:
+                    processed_line = self.process_metadata_line(line)
+                    print(f"processed_line: {processed_line}")
+                    if processed_line:
+                        #processed_lines.append(processed_line)
+                        f_out.write(processed_line + "\n")
+                        f_out.flush()
+                print("running step 4 Done.\n") 
+        except Exception as e:
+            print(f"An error occurred: {e}")
+        #if processed_lines:
+        #    print(f"\nWriting normalized metadata to: {self.metadata_path}")
+        #    with open(self.metadata_path, "w", encoding="utf-8") as f_out:
+        #        for line in processed_lines:
+        #            f_out.write(line + "\n")
+        #    print("Done.")
 
-        with open(self.metadata_path, "r", encoding="utf-8") as f_meta:
-            for line in f_meta:
-                processed_line = self.process_metadata_line(line)
-                if processed_line:
-                    processed_lines.append(processed_line)
+        # 모든 처리가 완료된 후 검증 실행
+        print("\nStarting dataset verification...")
+        verification_results = self.verify_dataset_consistency()
 
-        if processed_lines:
-            print(f"\nWriting normalized metadata to: {self.metadata_path}")
-            with open(self.metadata_path, "w", encoding="utf-8") as f_out:
-                for line in processed_lines:
-                    f_out.write(line + "\n")
-            print("Done.")
-
-            # 모든 처리가 완료된 후 검증 실행
-            print("\nStarting dataset verification...")
-            verification_results = self.verify_dataset_consistency()
-
-            # 검증 결과에 따라 적절한 메시지 출력
-            if verification_results["errors"]:
-                print("\nWARNING: Dataset verification found errors!")
-                print(
-                    "Please check the errors above and fix them before proceeding."
-                )
-            else:
-                print("\nDataset verification completed successfully!")
-
+        # 검증 결과에 따라 적절한 메시지 출력
+        if verification_results["errors"]:
+            print("\nWARNING: Dataset verification found errors!")
+            print(
+                "Please check the errors above and fix them before proceeding."
+            )
         else:
-            print("No lines were processed to write to metadata.txt.")
+            print("\nDataset verification completed successfully!")
+
+        #else:
+        #    print("No lines were processed to write to metadata.txt.")
 
 
 # Usage
@@ -938,3 +976,4 @@ if __name__ == "__main__":
         language="ko",
     )
     preprocessor.process_all_files()
+    
