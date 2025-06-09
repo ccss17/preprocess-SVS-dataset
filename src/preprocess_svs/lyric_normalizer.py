@@ -64,7 +64,7 @@ class ErrorChecker:
     def _is_hangul(self, char: str) -> bool:
         """문자가 한글인지 확인합니다."""
         return "HANGUL" in unicodedata.name(char)
-    
+
     def _is_hangul_syllable(self, char: str) -> bool:
         """문자가 완성형 한글 음절인지 확인합니다."""
         return 0xAC00 <= ord(char) <= 0xD7A3
@@ -81,7 +81,9 @@ class ErrorChecker:
             return False
 
         for i in range(len(text) - 2):
-            if not all(self._is_hangul_syllable(char) for char in text[i : i + 3]):
+            if not all(
+                self._is_hangul_syllable(char) for char in text[i : i + 3]
+            ):
                 continue
 
             # 각 음절을 자모로 분해
@@ -632,7 +634,9 @@ class SVS_Preprocessor:
 
         # Initialize paths
         self.metadata_path = self.base_path / "metadata.txt"
-        self.pre_metadata_path = self.base_path / "pre_metadata.txt"
+        self.normalized_metadata_path = (
+            self.base_path / "normalized_metadata.txt"
+        )
         self.wav_path = self.base_path / "wav"
         self.pitch_path = self.base_path / "pitch"
         self.duration_path = self.base_path / "duration"
@@ -729,14 +733,14 @@ class SVS_Preprocessor:
             original_filename_stem
         )
 
-        #print("----------------------------------------------")
-        #print(f"Processing: {original_filename_stem}")
-        #print( f"  Original Lyrics: '{original_lyrics}, {len(original_lyrics)}'")
+        # print("----------------------------------------------")
+        # print(f"Processing: {original_filename_stem}")
+        # print( f"  Original Lyrics: '{original_lyrics}, {len(original_lyrics)}'")
 
         # Transcribe audio
         try:
             gt_text = self.transcribe_audio(wav_filepath)
-            #print(f"  STT Result: '{gt_text}'")
+            # print(f"  STT Result: '{gt_text}'")
         except Exception as e:
             print(f"wav issue in {original_filename_stem}")
             return None
@@ -747,15 +751,15 @@ class SVS_Preprocessor:
             self.log_error(
                 original_filename_stem, "W", original_lyrics, gt_text
             )
-            #print("is_error!")
+            # print("is_error!")
             return None
 
         # Load sequences
         pitch_sequence, duration_sequence = self.load_sequences(
             pitch_filepath, duration_filepath
         )
-        #print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
-        #print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
+        # print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
+        # print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
 
         # Normalize
         try:
@@ -767,7 +771,7 @@ class SVS_Preprocessor:
                     duration_sequence,
                 )
             )
-            
+
             if normalized_lyrics is None:
                 self.log_error(
                     original_filename_stem, "D", original_lyrics, gt_text
@@ -775,9 +779,9 @@ class SVS_Preprocessor:
                 print("error in normalized!")
                 return None
 
-            #print( f"  Normalized Lyrics: '{normalized_lyrics}', {len(normalized_lyrics)}")
-            #print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
-            #print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
+            # print( f"  Normalized Lyrics: '{normalized_lyrics}', {len(normalized_lyrics)}")
+            # print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
+            # print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
 
             # Save normalized sequences
             self.save_normalized_sequences(
@@ -929,21 +933,25 @@ class SVS_Preprocessor:
             self.load_model()
 
         processed_lines = []
-        
+
         try:
-            with open(self.metadata_path, "r", encoding="utf-8") as f_in, \
-                open(self.pre_metadata_path, "w", encoding="utf-8") as f_out:
+            with (
+                open(self.metadata_path, "r", encoding="utf-8") as f_in,
+                open(
+                    self.normalized_metadata_path, "w", encoding="utf-8"
+                ) as f_out,
+            ):
                 for line in f_in:
                     processed_line = self.process_metadata_line(line)
-                    #print(f"processed_line: {processed_line}")
+                    # print(f"processed_line: {processed_line}")
                     if processed_line:
-                        #processed_lines.append(processed_line)
+                        # processed_lines.append(processed_line)
                         f_out.write(processed_line + "\n")
                         f_out.flush()
-                print("running step 4 Done.\n") 
+                print("running step 4 Done.\n")
         except Exception as e:
             print(f"An error occurred: {e}")
-        #if processed_lines:
+        # if processed_lines:
         #    print(f"\nWriting normalized metadata to: {self.metadata_path}")
         #    with open(self.metadata_path, "w", encoding="utf-8") as f_out:
         #        for line in processed_lines:
@@ -963,7 +971,7 @@ class SVS_Preprocessor:
         else:
             print("\nDataset verification completed successfully!")
 
-        #else:
+        # else:
         #    print("No lines were processed to write to metadata.txt.")
 
 
@@ -976,4 +984,3 @@ if __name__ == "__main__":
         language="ko",
     )
     preprocessor.process_all_files()
-    

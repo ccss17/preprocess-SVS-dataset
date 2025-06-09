@@ -1,5 +1,3 @@
-import re
-
 import preprocess_svs as ps
 from preprocess_svs import gv
 from preprocess_svs import SVS_Preprocessor
@@ -11,7 +9,7 @@ gv_json_preprocessed_path = "/home/ccss17/dataset/gv_json_preprocessed"
 gv_json_split_path = "/home/ccss17/dataset/gv_json_splt"
 preprocessed_gv_path = "/home/ccss17/dataset/gv_dataset_preprocessed"
 metadata_path = preprocessed_gv_path + "/metadata.txt"
-pre_metadata_path = preprocessed_gv_path + "/pre_metadata.txt"
+normalized_metadata_path = preprocessed_gv_path + "/normalized_metadata.txt"
 
 print("1: preprocess jsons")
 gv.preprocess_json(
@@ -29,10 +27,7 @@ ps.save_duration_pitch_metadata_split_audio(
     gv_wav_path,
     gv_json_split_path,
     preprocessed_gv_path,
-    signer_id_from_filepath=lambda x: int(
-        re.findall(r"SINGER_\d\d", x)[0][-2:]
-    )
-    + 44,
+    singer_id_from_filepath=gv.singer_id_from_filepath,
 )
 
 print("4: normalize lyric")
@@ -46,4 +41,4 @@ preprocessor.process_all_files()
 preprocessor.verify_dataset_consistency()
 
 print("5: g2p")
-ps.g2p_metadata(pre_metadata_path)
+ps.g2p_metadata(normalized_metadata_path)

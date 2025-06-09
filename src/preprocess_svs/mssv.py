@@ -1,11 +1,9 @@
 from pathlib import Path
-import json
 import re
 import itertools
 import pathlib
 import multiprocessing as mp
 import sys
-from collections import defaultdict
 
 import pandas as pd
 import midii
@@ -18,8 +16,6 @@ from .util import (
     _preprocess_silence_pitch_zero,
     _preprocess_merge_silence,
     _preprocess_remove_short_silence,
-    split_json_by_silence,
-    save_duration_pitch_metadata_split_audio,
 )
 
 
@@ -338,33 +334,6 @@ def rename_abnormal_file(mssv_dir):
     return renamed_log, error_log
 
 
-def find_exclusive_two_type_files(type1, type2, dir1_path, dir2_path):
-    dir1_path = pathlib.Path(dir1_path)
-    dir2_path = pathlib.Path(dir2_path)
-    type1_files_by_basename = defaultdict(list)
-    type2_files_by_basename = defaultdict(list)
-
-    for type1_file_path in dir1_path.rglob(f"*.{type1}"):
-        type1_files_by_basename[type1_file_path.stem].append(type1_file_path)
-    for type2_file_path in dir2_path.rglob(f"*.{type2}"):
-        type2_files_by_basename[type2_file_path.stem].append(type2_file_path)
-
-    type1_basenames = set(type1_files_by_basename.keys())
-    type2_basenames = set(type2_files_by_basename.keys())
-    exclusive_basenames = type1_basenames.symmetric_difference(type2_basenames)
-
-    result_file_paths = []
-    for basename in exclusive_basenames:
-        if basename in type1_basenames:
-            result_file_paths.extend(type2_files_by_basename[basename])
-        elif basename in type2_basenames:
-            result_file_paths.extend(type2_files_by_basename[basename])
-        else:
-            raise NotImplementedError
-
-    return result_file_paths
-
-
 def verify_midi_pattern_on_lyrics_off(midi_path):
     mid = midii.MidiFile(midi_path, convert_1_to_0=True)
     note_info_msg_set = ("note_on", "lyrics", "note_off")
@@ -451,3 +420,7 @@ def midis_to_jsons(midi_dirpath, json_dirpath):
             )
             args.append(arg)
         p.starmap(midi_to_json, args)
+
+
+def singer_id_from_filepath(filepath):
+    return int(re.findall(r"s\d\d", filepath)[0][1:]) + 26

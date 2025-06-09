@@ -1,6 +1,8 @@
 from pathlib import Path
 from multiprocessing import Pool, cpu_count
 import json
+from collections import defaultdict
+from scipy.io.wavfile import read
 
 import pandas as pd
 import numpy as np
@@ -8,6 +10,8 @@ from g2pk2 import G2p
 import librosa
 import soundfile
 import midii
+
+from .feature import extract_features
 
 
 def split_json_by_silence(json_path, min_length=6):
@@ -280,9 +284,11 @@ def preprocess_one(
     with open(json_path, "r", encoding="utf-8") as f:
         json_data = json.load(f)
 
-    out_pitch_dir_path = Path(out_path) / "pitch"
-    out_duration_dir_path = Path(out_path) / "duration"
-    out_wavs_dir_path = Path(out_path) / "wav"
+    out_path = Path(out_path)
+
+    out_pitch_dir_path = out_path / "pitch"
+    out_duration_dir_path = out_path / "duration"
+    out_wavs_dir_path = out_path / "wav"
     out_pitch_dir_path.mkdir(exist_ok=True, parents=True)
     out_duration_dir_path.mkdir(exist_ok=True, parents=True)
     out_wavs_dir_path.mkdir(exist_ok=True, parents=True)
@@ -328,7 +334,7 @@ def save_duration_pitch_metadata_split_audio(
     wav_dirpath,
     split_json_dirpath,
     preprocessed_path,
-    signer_id_from_filepath=lambda: 0,
+    singer_id_from_filepath=lambda: 0,
 ):
     wav_dirpath = Path(wav_dirpath)
     split_json_paths = get_files(split_json_dirpath, "json", sort=True)
@@ -338,7 +344,7 @@ def save_duration_pitch_metadata_split_audio(
             wav_dirpath / Path(split_json_path).with_suffix(".wav").name,
             split_json_path,
             preprocessed_path,
-            signer_id_from_filepath,
+            singer_id_from_filepath,
         )
         args.append(arg)
 
@@ -370,3 +376,87 @@ def split_jsons(json_dirpath, split_json_dirpath):
         args.append((json_path, split_json_dirpath / json_path.name))
     with Pool(cpu_count()) as p:
         p.starmap(split_json, args)
+
+
+def find_exclusive_two_type_files(type1, type2, dir1_path, dir2_path):
+    dir1_path = Path(dir1_path)
+    dir2_path = Path(dir2_path)
+    type1_files_by_basename = defaultdict(list)
+    type2_files_by_basename = defaultdict(list)
+
+    for type1_file_path in dir1_path.rglob(f"*.{type1}"):
+        type1_files_by_basename[type1_file_path.stem].append(type1_file_path)
+    for type2_file_path in dir2_path.rglob(f"*.{type2}"):
+        type2_files_by_basename[type2_file_path.stem].append(type2_file_path)
+
+    type1_basenames = set(type1_files_by_basename.keys())
+    type2_basenames = set(type2_files_by_basename.keys())
+    exclusive_basenames = type1_basenames.symmetric_difference(type2_basenames)
+
+    result_file_paths = []
+    for basename in exclusive_basenames:
+        if basename in type1_basenames:
+            result_file_paths.extend(type2_files_by_basename[basename])
+        elif basename in type2_basenames:
+            result_file_paths.extend(type2_files_by_basename[basename])
+        else:
+            raise NotImplementedError
+
+    return result_file_paths
+
+
+#
+# 임시
+#
+def read_wav(wav_path, normalize=False):
+    _, wav = read(wav_path)
+    wav = wav.astype(np.float32)
+
+    if normalize:
+        wav = wav / 32768.0
+
+    return wav
+
+
+def save_f0_mel_energy(wav_path, out_path):
+    extracted_wav = read_wav(wav_path, normalize=True)
+    f0, mel, energy = extract_features(
+        extracted_wav,
+        sampling_rate=midii.DEFAULT_SAMPLING_RATE,
+        n_fft=1024,
+        win_length=1024,
+        hop_length=256,
+    )
+
+    out_path = Path(out_path)
+    wav_path = Path(wav_path)
+
+    out_f0_dir_path = out_path / "f0"
+    out_mel_dir_path = out_path / "mel"
+    out_energy_dir_path = out_path / "energe"
+    out_f0_dir_path.mkdir(exist_ok=True, parents=True)
+    out_mel_dir_path.mkdir(exist_ok=True, parents=True)
+    out_energy_dir_path.mkdir(exist_ok=True, parents=True)
+
+    f0_subfile = f"{out_f0_dir_path}/{wav_path.stem}.npy"
+    f0_subfile = Path(f0_subfile)
+    if not f0_subfile.exists():
+        np.save(f0_subfile, f0)
+
+    mel_subfile = f"{out_mel_dir_path}/{wav_path.stem}.npy"
+    mel_subfile = Path(mel_subfile)
+    if not mel_subfile.exists():
+        np.save(mel_subfile, mel)
+
+    energy_subfile = f"{out_energy_dir_path}/{wav_path.stem}.npy"
+    energy_subfile = Path(energy_subfile)
+    if not energy_subfile.exists():
+        np.save(energy_subfile, energy)
+
+
+def save_all_f0_mel_energy(wav_dir_path, out_path):
+    args = []
+    for wav_path in get_files(wav_dir_path, "wav"):
+        args.append((wav_path, out_path))
+    with Pool(cpu_count()) as p:
+        p.starmap(save_f0_mel_energy, args)

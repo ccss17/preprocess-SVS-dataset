@@ -1,5 +1,3 @@
-import re
-
 import preprocess_svs as ps
 from preprocess_svs import mssv
 from preprocess_svs import SVS_Preprocessor
@@ -10,7 +8,7 @@ json_dirpath = "/home/ccss17/dataset/new_mssv_json"
 split_json_dirpath = "/home/ccss17/dataset/new_mssv_json_split"
 preprocessed_mssv_path = "/home/ccss17/dataset/new_mssv_preprocessed"
 metadata_path = preprocessed_mssv_path + "/metadata.txt"
-pre_metadata_path = preprocessed_mssv_path + "/pre_metadata.txt"
+normalized_metadata_path = preprocessed_mssv_path + "/normalized_metadata.txt"
 
 print("1: midis_to_jsons")
 mssv.midis_to_jsons(mssv_midi_path, json_dirpath)
@@ -23,7 +21,7 @@ ps.save_duration_pitch_metadata_split_audio(
     mssv_wav_path,
     split_json_dirpath,
     preprocessed_mssv_path,
-    signer_id_from_filepath=lambda x: int(re.findall(r"s\d\d", x)[0][1:]) + 26,
+    signer_id_from_filepath=mssv.singer_id_from_filepath,
 )
 
 print("4: lyric normalize")
@@ -37,4 +35,4 @@ preprocessor.process_all_files()
 preprocessor.verify_dataset_consistency()
 
 print("5: g2p")
-ps.g2p_metadata(pre_metadata_path)
+ps.g2p_metadata(normalized_metadata_path)

@@ -280,3 +280,7 @@ def verify_json_notes_sorted_by_time(dir_path, parallel=False):
                 for index, row in result_df.iterrows():
                     diffs.append(row["previous_end_time"] - row["start_time"])
     print_stat(diffs, verbose=True)
+
+
+def singer_id_from_filepath(filepath):
+    return int(re.findall(r"SINGER_\d\d", filepath)[0][-2:]) + 44
