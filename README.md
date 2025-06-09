@@ -1,6 +1,6 @@
 # Preprocessing SVS Dataset
 
-preprocessing code for SVS dataset with [midii](https://github.com/ccss17/midii)
+preprocessing code for SVS dataset with [midii](https://github.com/ccss17/midii) and [hangul-dtw](https://github.com/dirhq88/hangul_dtw)
 
 ## Installation
 
