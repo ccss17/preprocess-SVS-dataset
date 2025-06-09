@@ -11,6 +11,7 @@ gv_json_preprocessed_path = "/home/ccss17/dataset/gv_json_preprocessed"
 gv_json_split_path = "/home/ccss17/dataset/gv_json_splt"
 preprocessed_gv_path =  "/home/ccss17/dataset/gv_dataset_preprocessed"
 metadata_path = preprocessed_gv_path + "/metadata.txt"
+pre_metadata_path = preprocessed_gv_path + "/pre_metadata.txt"
 
 # preprocess json
 # print(f"1: preprocess jsons")
@@ -30,7 +31,7 @@ metadata_path = preprocessed_gv_path + "/metadata.txt"
 #gv.save_duration_pitch_metadata_split_audio(
 #    gv_wav_path, gv_json_split_path, preprocessed_gv_path
 #)
-'''
+
 # normalize lyric
 print(f"4: normalize lyric")
 preprocessor = SVS_Preprocessor(
@@ -44,5 +45,5 @@ preprocessor.verify_dataset_consistency()
 
 # Apply g2p
 print(f"5: g2p")
-ps.g2p_metadata(metadata_path)
-'''
+ps.g2p_metadata(pre_metadata_path)
+

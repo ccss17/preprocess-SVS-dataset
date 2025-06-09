@@ -729,14 +729,14 @@ class SVS_Preprocessor:
             original_filename_stem
         )
 
-        print("----------------------------------------------")
-        print(f"Processing: {original_filename_stem}")
-        print( f"  Original Lyrics: '{original_lyrics}, {len(original_lyrics)}'")
+        #print("----------------------------------------------")
+        #print(f"Processing: {original_filename_stem}")
+        #print( f"  Original Lyrics: '{original_lyrics}, {len(original_lyrics)}'")
 
         # Transcribe audio
         try:
             gt_text = self.transcribe_audio(wav_filepath)
-            print(f"  STT Result: '{gt_text}'")
+            #print(f"  STT Result: '{gt_text}'")
         except Exception as e:
             print(f"wav issue in {original_filename_stem}")
             return None
@@ -747,15 +747,15 @@ class SVS_Preprocessor:
             self.log_error(
                 original_filename_stem, "W", original_lyrics, gt_text
             )
-            print("is_error!")
+            #print("is_error!")
             return None
 
         # Load sequences
         pitch_sequence, duration_sequence = self.load_sequences(
             pitch_filepath, duration_filepath
         )
-        print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
-        print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
+        #print( f"  Original Pitch Sequence: {pitch_sequence}, {len(pitch_sequence)}")
+        #print( f"  Original Duration Sequence: {duration_sequence}, {len(duration_sequence)}")
 
         # Normalize
         try:
@@ -775,9 +775,9 @@ class SVS_Preprocessor:
                 print("error in normalized!")
                 return None
 
-            print( f"  Normalized Lyrics: '{normalized_lyrics}', {len(normalized_lyrics)}")
-            print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
-            print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
+            #print( f"  Normalized Lyrics: '{normalized_lyrics}', {len(normalized_lyrics)}")
+            #print( f"  Normalized Durations: {normalized_durations}, {len(normalized_durations)}")
+            #print( f"  Normalized Pitch Sequence: {normalized_pitches}, {len(normalized_pitches)}\n")
 
             # Save normalized sequences
             self.save_normalized_sequences(
@@ -935,7 +935,7 @@ class SVS_Preprocessor:
                 open(self.pre_metadata_path, "w", encoding="utf-8") as f_out:
                 for line in f_in:
                     processed_line = self.process_metadata_line(line)
-                    print(f"processed_line: {processed_line}")
+                    #print(f"processed_line: {processed_line}")
                     if processed_line:
                         #processed_lines.append(processed_line)
                         f_out.write(processed_line + "\n")
