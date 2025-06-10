@@ -425,7 +425,7 @@ def save_f0_mel_energy(wav_path, out_path):
 
     out_f0_dir_path = out_path / "f0"
     out_mel_dir_path = out_path / "mel"
-    out_energy_dir_path = out_path / "energe"
+    out_energy_dir_path = out_path / "energy"
     out_f0_dir_path.mkdir(exist_ok=True, parents=True)
     out_mel_dir_path.mkdir(exist_ok=True, parents=True)
     out_energy_dir_path.mkdir(exist_ok=True, parents=True)
