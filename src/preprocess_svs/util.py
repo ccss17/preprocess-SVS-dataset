@@ -461,11 +461,9 @@ def save_f0_mel_energy(wav_path, out_path):
         np.save(energy_subfile, energy)
 
 
-def save_all_f0_mel_energy(wav_dir_path, out_path):
+def save_all_f0_mel_energy(wav_dir_path, out_path, processes=cpu_count()):
     args = []
     for wav_path in get_files(wav_dir_path, "wav"):
         args.append((wav_path, out_path))
-    num_p = cpu_count()
-    # num_p = int(num_p / 2)
-    with Pool(num_p) as p:
+    with Pool(processes) as p:
         p.starmap(save_f0_mel_energy, args)
