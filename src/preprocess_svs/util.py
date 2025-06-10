@@ -10,6 +10,7 @@ from g2pk2 import G2p
 import librosa
 import soundfile
 import midii
+import parselmouth
 
 from .feature import extract_features
 
@@ -419,15 +420,6 @@ def read_wav(wav_path, normalize=False):
 
 
 def save_f0_mel_energy(wav_path, out_path):
-    extracted_wav = read_wav(wav_path, normalize=True)
-    f0, mel, energy = extract_features(
-        extracted_wav,
-        sampling_rate=midii.DEFAULT_SAMPLING_RATE,
-        n_fft=1024,
-        win_length=1024,
-        hop_length=256,
-    )
-
     out_path = Path(out_path)
     wav_path = Path(wav_path)
 
@@ -440,16 +432,31 @@ def save_f0_mel_energy(wav_path, out_path):
 
     f0_subfile = f"{out_f0_dir_path}/{wav_path.stem}.npy"
     f0_subfile = Path(f0_subfile)
+    mel_subfile = f"{out_mel_dir_path}/{wav_path.stem}.npy"
+    mel_subfile = Path(mel_subfile)
+    energy_subfile = f"{out_energy_dir_path}/{wav_path.stem}.npy"
+    energy_subfile = Path(energy_subfile)
+
+    if not f0_subfile.exists() and not mel_subfile.exists() and not energy_subfile.exists():
+        try:
+            extracted_wav = read_wav(wav_path, normalize=True)
+            f0, mel, energy = extract_features(
+                extracted_wav,
+                sampling_rate=midii.DEFAULT_SAMPLING_RATE,
+                n_fft=1024,
+                win_length=1024,
+                hop_length=256,
+            )
+        except:
+            return
+
+
     if not f0_subfile.exists():
         np.save(f0_subfile, f0)
 
-    mel_subfile = f"{out_mel_dir_path}/{wav_path.stem}.npy"
-    mel_subfile = Path(mel_subfile)
     if not mel_subfile.exists():
         np.save(mel_subfile, mel)
 
-    energy_subfile = f"{out_energy_dir_path}/{wav_path.stem}.npy"
-    energy_subfile = Path(energy_subfile)
     if not energy_subfile.exists():
         np.save(energy_subfile, energy)
 
@@ -458,5 +465,7 @@ def save_all_f0_mel_energy(wav_dir_path, out_path):
     args = []
     for wav_path in get_files(wav_dir_path, "wav"):
         args.append((wav_path, out_path))
-    with Pool(cpu_count()) as p:
+    num_p = cpu_count()
+    # num_p = int(num_p / 2)
+    with Pool(num_p) as p:
         p.starmap(save_f0_mel_energy, args)

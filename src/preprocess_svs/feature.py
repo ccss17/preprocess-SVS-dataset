@@ -48,6 +48,8 @@ def extract_f0(
         pitch_object = snd.to_pitch_ac(
             time_step=time_step,
             voicing_threshold=voicing_threshold,
+            # pitch_floor=75.0,
+            # pitch_ceiling=800.0,
             octave_cost=octave_cost,
             octave_jump_cost=octave_jump_cost,
         )
